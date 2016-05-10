@@ -9,6 +9,9 @@
  * fastlog 100              - dumps 100 results to the display
  * fastlog -t /dev/ttyUSB0  - use /dev/ttyUSB0 (this is the default)
  * fastlog -o log.csv       - write to CSV file 
+ * fastlog -f -o log.csv    - flush file after each entry
+ * fastlog -c convname      - convert the data, e.g. -c therm100k
+ * fastlog -j 0.001         - test a conversion with a junk floating point value
  *
  **************************************************/
 
@@ -21,6 +24,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <errno.h>
+#include <math.h>
 
 //#define DO_DEBUG
 
@@ -28,6 +32,54 @@
 #define DEFAULT_FNAME "out.csv"
 
 int ttyfd;
+double (*conv_func)(double);
+
+/**************************************
+* Conversion functions:
+* Add code in conv_func to call these
+* conversion functions.
+***************************************/
+#define COEFA 7.987407898E-4
+#define COEFB 2.125901507E-4
+#define COEFC 7.077938365E-8
+
+double
+therm100k(double raw)
+{
+  double degc;
+  double lnr, k;
+
+  lnr=log(raw);
+  k=1.0/(COEFA+(COEFB*lnr)+(COEFC*(pow(lnr, 3))));
+  degc=k-273.15;
+
+  return(degc);
+}
+
+double
+times1(double raw)
+{
+  return(raw*1.0);
+}
+// ************************************
+
+int
+conv_find(char* conv_name)
+{
+  if (strcmp(conv_name, "therm100k")==0)
+  {
+    conv_func=therm100k;
+  }
+  else
+  {
+    // 'do nothing' type of function
+    conv_func=times1;
+    printf("conversion '%s' not found!\n", conv_name);
+    exit(1);
+  }
+
+  return(0);
+}
 
 int
 delay_ms(unsigned int msec)
@@ -127,11 +179,20 @@ main(int argc, char *argv[])
 {
   char ttyname[64];
   char ofname[256];
+  char convname[64];
+  char junkval_s[32];
+  double junkval;
+  int dojunkval=0;
   unsigned long iter, k;
   int i;
   char cbuf;
   int dofile=0;
+  int doflush=0;
+  int doforever=0;
+  int doconv=0;
   FILE* ofd;
+  double raw;
+  double converted;
   
   char tbuf[256];
   char buf[1024];
@@ -142,6 +203,7 @@ main(int argc, char *argv[])
   strcpy(ttyname, DEFAULT_TTY);
   iter=10;
   strcpy(ofname, DEFAULT_FNAME);
+  convname[0]='\0';
 
   if (argc>1)
   {
@@ -165,9 +227,40 @@ main(int argc, char *argv[])
           i++;
         }
       }
+      else if (strncmp("-j", param, 2)==0)
+      {
+        if (i+1<argc)
+        {
+          strcpy(junkval_s, argv[i+1]);
+          sscanf(junkval_s, "%lf", &junkval);
+          printf("Simulating with junk value %lf\n", junkval);
+          dojunkval=1;
+          i++;
+        }
+      }
+      else if (strncmp("-c", param, 2)==0)
+      {
+        if (i+1<argc)
+        {
+          strcpy(convname, argv[i+1]);
+          if (conv_find(convname)==0)
+          {
+            doconv=1;
+          }
+          i++;
+        }
+      }
+      else if (strncmp("-f", param, 2)==0)
+      {
+        doflush=1;
+      }
       else if (isdigit(param[0]))
       {
         sscanf(param, "%lu", &iter);
+        if (iter==0)
+        {
+           doforever=1;
+        }
       }
 
     }
@@ -179,6 +272,19 @@ main(int argc, char *argv[])
   printf("File name %s\n", ofname);
   printf("Iter %lu\n", iter);
 #endif
+
+  if (dojunkval)
+  {
+    if (doconv==0)
+    {
+       conv_func=times1;
+    }
+    junkval=conv_func(junkval);
+    printf("conversion result is %lf\n", junkval);
+    return(0);
+  }
+       
+
   
   ttyfd = open(ttyname, O_RDWR | O_NOCTTY | O_NDELAY);
   if (ttyfd == -1)
@@ -228,15 +334,37 @@ main(int argc, char *argv[])
   do_transact(buf, "SYST:BATT?", NULL);
   printf("Battery: %s\n", buf);
   if (dofile) fprintf(ofd, "Battery: %s\n", buf);
+  if (doforever) iter=10; // anything non-zero
   for (k=0; k<iter; k++)
   {
     do_transact(buf, "FETC?", tbuf);
-    printf("%lu, %s, %s\n", k+1, tbuf, buf);
+    if (doconv)
+    {
+      sscanf(buf, "%lf", &raw);
+      converted=conv_func(raw);
+      printf("%lu, %s, %lf\n", k+1, tbuf, converted);
+    }
+    else
+    {
+      printf("%lu, %s, %s\n", k+1, tbuf, buf);
+    }
     if (dofile)
     {
-      fprintf(ofd, "%lu, %s, %s\n", k+1, tbuf, buf);
+      if (doconv)
+      {
+        fprintf(ofd, "%lu, %s, %lf\n", k+1, tbuf, converted);
+      }
+      else
+      {
+        fprintf(ofd, "%lu, %s, %s\n", k+1, tbuf, buf);
+      }
+      if (doflush)
+      {
+        fflush(ofd);
+      }
     }
     delay_ms(100);
+    if (doforever) iter++; // never exit
   }
 
   close(ttyfd);
