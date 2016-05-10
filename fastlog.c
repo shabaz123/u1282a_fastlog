@@ -331,6 +331,9 @@ main(int argc, char *argv[])
   do_transact(buf, "CONF?", NULL);
   printf("Configuration: %s\n", buf);
   if (dofile) fprintf(ofd, "Configuration: %s\n", buf);
+  do_transact(buf, "STAT?", NULL);
+  printf("Status bits: %s\n", buf);
+  if (dofile) fprintf(ofd, "Status bits: %s\n", buf);
   do_transact(buf, "SYST:BATT?", NULL);
   printf("Battery: %s\n", buf);
   if (dofile) fprintf(ofd, "Battery: %s\n", buf);
