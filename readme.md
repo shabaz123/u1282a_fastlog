@@ -15,7 +15,14 @@ fastlog -t /dev/ttyUSB0  - use /dev/ttyUSB0 (this is the default)
 fastlog -o log.csv       - write to CSV file (as well as dumping to display)
 
 This software should work on all Linux platforms; it was tested on
-a Raspberry Pi 3.
+a Raspberry Pi 3 and on Ubuntu running on a x86 PC.
+
+fastlog.m is a MATLAB program with similar functionality in that it can retrieve
+data from the U1282A, but it directly plots it to the screen. To use it, just type
+fastlog at the MATLAB command window.
 
 For further information about this project see Element 14.
+https://www.element14.com/community/groups/test-and-measurement/blog/2016/05/05/keysight-u1282a-data-logger-software
+
+
 
